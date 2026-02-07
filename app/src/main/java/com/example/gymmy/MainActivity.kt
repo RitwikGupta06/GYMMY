@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -47,6 +46,7 @@ import com.example.gymmy.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * MainActivity is the entry point of the app. 
@@ -370,8 +370,13 @@ fun RecordWorkoutScreen(onClose: () -> Unit) {
     val hours = secondsElapsed / 3600
     val minutes = (secondsElapsed % 3600) / 60
     val seconds = secondsElapsed % 60
-    val timeFormatted = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
+    val timeFormatted = String.format(
+        Locale.US,
+        "%02d:%02d:%02d",
+        hours,
+        minutes,
+        seconds
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -443,9 +448,11 @@ fun RecordWorkoutScreen(onClose: () -> Unit) {
             Text(
                 timeFormatted,
                 color = if (isRecording) PrimaryRed else Color.White,
-                fontSize = 84.sp,
+                fontSize = 56.sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = (-2).sp
+                letterSpacing = (-1).sp,
+                maxLines = 1,
+                softWrap = false
             )
 
             Spacer(modifier = Modifier.height(80.dp))
