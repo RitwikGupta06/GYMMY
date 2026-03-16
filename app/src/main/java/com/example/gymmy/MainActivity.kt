@@ -51,6 +51,7 @@ import com.example.gymmy.ui.theme.GoldAccent
 import com.example.gymmy.ui.theme.PrimaryRed
 import com.example.gymmy.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GYMMYApp() {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
+    var gymPlan by remember { mutableStateOf(initialGymPlan) }
 
     Scaffold(
         bottomBar = {
@@ -162,10 +164,20 @@ fun GYMMYApp() {
             .fillMaxSize()
             .background(Color(0xFF0F0F12))) {
             when (currentDestination) {
-                AppDestinations.HOME -> HomeScreen()
+                AppDestinations.HOME -> HomeScreen(onStartWorkout = { currentDestination = AppDestinations.RECORD })
                 AppDestinations.GYMS -> PlaceholderScreen("Gyms")
-                AppDestinations.RECORD -> RecordWorkoutScreen { currentDestination = AppDestinations.HOME }
-                AppDestinations.PLAN -> GymPlanScreen()
+                AppDestinations.RECORD -> {
+                    val currentDay = java.time.LocalDate.now().dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US)
+                    val todayWorkout = gymPlan.find { it.day.equals(currentDay, ignoreCase = true) }
+                    RecordWorkoutScreen(
+                        todayExercises = todayWorkout?.exercises ?: emptyList(),
+                        onClose = { currentDestination = AppDestinations.HOME }
+                    )
+                }
+                AppDestinations.PLAN -> GymPlanScreen(
+                    gymPlan = gymPlan,
+                    onUpdatePlan = { gymPlan = it }
+                )
                 AppDestinations.PROFILE -> PlaceholderScreen("Profile")
             }
         }
@@ -212,7 +224,7 @@ enum class AppDestinations(val label: String, val outlinedIcon: ImageVector, val
 }
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onStartWorkout: () -> Unit) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -220,7 +232,7 @@ fun HomeScreen() {
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         item { HomeTopBar() }
-        item { StartWorkoutCard() }
+        item { StartWorkoutCard(onStartWorkout = onStartWorkout) }
         item { SectionHeader("Friends Activity") }
         items(activityFeed) { activity -> ActivityCard(activity) }
         item { Spacer(modifier = Modifier.height(20.dp)) }
@@ -271,8 +283,9 @@ fun HomeTopBar() {
 }
 
 @Composable
-fun StartWorkoutCard() {
+fun StartWorkoutCard(onStartWorkout: () -> Unit) {
     Card(
+        onClick = onStartWorkout,
         modifier = Modifier
             .fillMaxWidth()
             .height(150.dp),
@@ -355,11 +368,17 @@ fun ActivityCard(activity: ActivityItem) {
     }
 }
 
+data class WorkoutSet(val reps: Int, val weight: Float, val exerciseName: String = "")
+
 @Composable
-fun RecordWorkoutScreen(onClose: () -> Unit) {
+fun RecordWorkoutScreen(todayExercises: List<String>, onClose: () -> Unit) {
     var isRecording by rememberSaveable { mutableStateOf(false) }
     var secondsElapsed by remember { mutableLongStateOf(0L) }
     var startTimeStr by rememberSaveable { mutableStateOf("") }
+    
+    // In-memory sets for the current recording session
+    var activeSets by remember { mutableStateOf(listOf<WorkoutSet>()) }
+    var selectedExercise by remember { mutableStateOf(todayExercises.firstOrNull() ?: "") }
 
     // Timer logic
     LaunchedEffect(isRecording) {
@@ -384,6 +403,7 @@ fun RecordWorkoutScreen(onClose: () -> Unit) {
         minutes,
         seconds
     )
+    
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -401,121 +421,266 @@ fun RecordWorkoutScreen(onClose: () -> Unit) {
             }
             .statusBarsPadding()
     ) {
-        // Top Bar
-        Row(
+        // Top Bar - Simplified structure to ensure clickability
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(24.dp)
         ) {
-            IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(32.dp))
-            }
-            Spacer(modifier = Modifier.weight(1f))
             Text(
                 "Workout Session",
                 color = Color.White,
                 fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.weight(1.2f))
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            // Location Tag
-            Surface(
-                color = Color(0xFF1C1C1E),
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.padding(bottom = 60.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("FitZone Gym", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-
-            Text(
-                if (isRecording) "TIME ELAPSED" else "READY TO START",
-                color = TextSecondary,
-                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
+                modifier = Modifier.align(Alignment.Center)
             )
             
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                timeFormatted,
-                color = if (isRecording) PrimaryRed else Color.White,
-                fontSize = 56.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-1).sp,
-                maxLines = 1,
-                softWrap = false
-            )
-
-            Spacer(modifier = Modifier.height(80.dp))
-
-            // Main Play/Stop Button
             Surface(
-                onClick = { isRecording = !isRecording },
-                color = PrimaryRed,
-                shape = CircleShape,
-                modifier = Modifier.size(120.dp),
-                border = if (isRecording) BorderStroke(2.dp, Color.White) else null
+                onClick = onClose,
+                color = Color.Transparent,
+                modifier = Modifier.align(Alignment.CenterEnd).size(48.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (isRecording) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isRecording) "Stop" else "Start",
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close",
                         tint = Color.White,
-                        modifier = Modifier.size(if (isRecording) 48.dp else 60.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                if (isRecording) "Tap to stop and save your workout" else "Tap to start tracking your workout",
-                color = TextSecondary,
-                fontSize = 14.sp
-            )
         }
 
-        // Session Details Card at the bottom
-        AnimatedVisibility(
-            visible = isRecording,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(top = 100.dp, bottom = 200.dp)
         ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E))
-            ) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Text("Session Details", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Started", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text(startTimeStr, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            item {
+                // Location Tag
+                Surface(
+                    color = Color(0xFF1C1C1E),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.padding(bottom = 60.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("FitZone Gym", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                     }
+                }
+            }
+
+            item {
+                Text(
+                    if (isRecording) "TIME ELAPSED" else "READY TO START",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    timeFormatted,
+                    color = if (isRecording) PrimaryRed else Color.White,
+                    fontSize = 56.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-1).sp,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
+            if (isRecording) {
+                item {
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Text("SELECT EXERCISE", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Location", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Verified", color = Color(0xFF4CAF50), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp)
+                    ) {
+                        items(todayExercises) { exercise ->
+                            val isSelected = selectedExercise == exercise
+                            Surface(
+                                onClick = { selectedExercise = exercise },
+                                color = if (isSelected) PrimaryRed else Color(0xFF1C1C1E),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (isSelected) PrimaryRed else Color.White.copy(alpha = 0.1f))
+                            ) {
+                                Text(
+                                    text = exercise,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                itemsIndexed(activeSets) { index, set ->
+                    SetEditorItem(
+                        setIndex = index + 1,
+                        set = set,
+                        onUpdate = { updatedSet ->
+                            val newList = activeSets.toMutableList()
+                            newList[index] = updatedSet
+                            activeSets = newList
+                        },
+                        onDelete = {
+                            activeSets = activeSets.filterIndexed { i, _ -> i != index }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                item {
+                    Button(
+                        onClick = { 
+                            if (selectedExercise.isNotEmpty()) {
+                                activeSets = activeSets + WorkoutSet(10, 20f, selectedExercise)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1C1E)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.padding(vertical = 16.dp),
+                        enabled = selectedExercise.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Set for $selectedExercise", color = Color.White)
+                    }
+                }
+            } else {
+                item { Spacer(modifier = Modifier.height(40.dp)) }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(40.dp))
+                // Main Play/Stop Button
+                Surface(
+                    onClick = { isRecording = !isRecording },
+                    color = PrimaryRed,
+                    shape = CircleShape,
+                    modifier = Modifier.size(120.dp),
+                    border = if (isRecording) BorderStroke(2.dp, Color.White) else null
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isRecording) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                            contentDescription = if (isRecording) "Stop" else "Start",
+                            tint = Color.White,
+                            modifier = Modifier.size(if (isRecording) 48.dp else 60.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Text(
+                    if (isRecording) "Tap to stop and save your workout" else "Tap to start tracking your workout",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        // Session Details Card at the bottom (only when not recording to keep it clean)
+        if (!isRecording) {
+            AnimatedVisibility(
+                visible = startTimeStr.isNotEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E))
+                ) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Text("Session Summary", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Started", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(startTimeStr, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Sets Logged", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("${activeSets.size}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SetEditorItem(
+    setIndex: Int,
+    set: WorkoutSet,
+    onUpdate: (WorkoutSet) -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth(0.9f),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("${set.exerciseName} - SET $setIndex", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Delete set", tint = PrimaryRed.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("REPS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { if (set.reps > 0) onUpdate(set.copy(reps = set.reps - 1)) }) {
+                            Icon(Icons.Default.Remove, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Text("${set.reps}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
+                        IconButton(onClick = { onUpdate(set.copy(reps = set.reps + 1)) }) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("WEIGHT (KG)", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { if (set.weight >= 2.5f) onUpdate(set.copy(weight = set.weight - 2.5f)) }) {
+                            Icon(Icons.Default.Remove, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Text("${set.weight}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
+                        IconButton(onClick = { onUpdate(set.copy(weight = set.weight + 2.5f)) }) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
             }
@@ -559,9 +724,9 @@ val commonFocuses = listOf("Chest & Triceps", "Back & Biceps", "Legs & Core", "S
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GymPlanScreen() {
-    var gymPlan by remember { mutableStateOf(initialGymPlan) }
+fun GymPlanScreen(gymPlan: List<WorkoutDay>, onUpdatePlan: (List<WorkoutDay>) -> Unit) {
     var editingDayIndex by remember { mutableStateOf(-1) }
+    val scope = rememberCoroutineScope()
 
     if (editingDayIndex != -1) {
         EditPlanDialog(
@@ -574,7 +739,7 @@ fun GymPlanScreen() {
                 // Auto-sort based on daysOfWeek order
                 newList.sortBy { daysOfWeek.indexOf(it.day) }
                 
-                gymPlan = newList
+                onUpdatePlan(newList)
                 editingDayIndex = -1
             }
         )
@@ -649,22 +814,18 @@ fun GymPlanScreen() {
             )
         }
 
-        itemsIndexed(items = gymPlan, key = { _, item -> item.day }) { index, day ->
+        items(items = gymPlan, key = { it.day }) { day ->
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = {
-                    if (it == SwipeToDismissBoxValue.EndToStart) {
-                        gymPlan = gymPlan.toMutableList().also { it.removeAt(index) }
-                        true
-                    } else {
-                        false
-                    }
+                    it == SwipeToDismissBoxValue.EndToStart
                 }
             )
 
             SwipeToDismissBox(
                 state = dismissState,
                 backgroundContent = {
-                    val color = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) PrimaryRed else Color.Transparent
+                    val isDismissed = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                    val color = if (isDismissed) PrimaryRed else Color.Transparent
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -672,12 +833,33 @@ fun GymPlanScreen() {
                             .padding(horizontal = 24.dp),
                         contentAlignment = Alignment.CenterEnd
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                        if (isDismissed) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { 
+                                    scope.launch { dismissState.reset() }
+                                }) {
+                                    Text("CANCEL", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = { 
+                                        onUpdatePlan(gymPlan.filter { it.day != day.day })
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Text("DELETE", color = PrimaryRed, fontWeight = FontWeight.ExtraBold)
+                                }
+                            }
+                        } else {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                        }
                     }
                 },
                 enableDismissFromStartToEnd = false
             ) {
-                DayCard(workoutDay = day, onClick = { editingDayIndex = index })
+                DayCard(workoutDay = day, onClick = { editingDayIndex = gymPlan.indexOf(day) })
             }
         }
 
@@ -819,8 +1001,7 @@ fun EditPlanDialog(
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                        verticalAlignment = Alignment.CenterVertically) {
                                         Text(exercise, color = Color.White, fontSize = 14.sp)
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
