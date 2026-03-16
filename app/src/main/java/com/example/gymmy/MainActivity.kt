@@ -13,10 +13,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.Close
@@ -36,9 +40,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.gymmy.ui.theme.GYMMYTheme
 import com.example.gymmy.ui.theme.GoldAccent
 import com.example.gymmy.ui.theme.PrimaryRed
@@ -158,7 +165,7 @@ fun GYMMYApp() {
                 AppDestinations.HOME -> HomeScreen()
                 AppDestinations.GYMS -> PlaceholderScreen("Gyms")
                 AppDestinations.RECORD -> RecordWorkoutScreen { currentDestination = AppDestinations.HOME }
-                AppDestinations.PLAN -> PlaceholderScreen("Gym Plan")
+                AppDestinations.PLAN -> GymPlanScreen()
                 AppDestinations.PROFILE -> PlaceholderScreen("Profile")
             }
         }
@@ -200,7 +207,7 @@ enum class AppDestinations(val label: String, val outlinedIcon: ImageVector, val
     HOME("Home", Icons.Outlined.Home, Icons.Default.Home),
     GYMS("Gyms", Icons.Outlined.PinDrop, Icons.Default.PinDrop),
     RECORD("Record", Icons.Default.Circle, Icons.Default.Circle),
-    PLAN("Gym ...", Icons.Outlined.FitnessCenter, Icons.Default.FitnessCenter),
+    PLAN("Gym", Icons.Outlined.FitnessCenter, Icons.Default.FitnessCenter),
     PROFILE("Profile", Icons.Outlined.AccountCircle, Icons.Default.AccountCircle)
 }
 
@@ -351,7 +358,7 @@ fun ActivityCard(activity: ActivityItem) {
 @Composable
 fun RecordWorkoutScreen(onClose: () -> Unit) {
     var isRecording by rememberSaveable { mutableStateOf(false) }
-    var secondsElapsed by rememberSaveable { mutableStateOf(0L) }
+    var secondsElapsed by remember { mutableLongStateOf(0L) }
     var startTimeStr by rememberSaveable { mutableStateOf("") }
 
     // Timer logic
@@ -515,6 +522,583 @@ fun RecordWorkoutScreen(onClose: () -> Unit) {
         }
     }
 }
+
+// --- Gym Plan Screen Models & Data ---
+
+enum class WorkoutStatus { DONE, UPCOMING, REST }
+
+data class WorkoutDay(
+    val day: String,
+    val focus: String,
+    val status: WorkoutStatus,
+    val exercises: List<String>
+)
+
+val initialGymPlan = listOf(
+    WorkoutDay("Monday", "Chest & Triceps", WorkoutStatus.DONE, listOf("Bench Press", "Incline Dumbbell Press", "Cable Flyes", "Tricep Dips")),
+    WorkoutDay("Tuesday", "Back & Biceps", WorkoutStatus.DONE, listOf("Deadlifts", "Pull-ups", "Barbell Rows", "Bicep Curls")),
+    WorkoutDay("Wednesday", "Rest Day", WorkoutStatus.REST, emptyList()),
+    WorkoutDay("Thursday", "Legs & Core", WorkoutStatus.UPCOMING, listOf("Squats", "Leg Press", "Calf Raises", "Plank")),
+    WorkoutDay("Friday", "Shoulders & Arms", WorkoutStatus.UPCOMING, listOf("Military Press", "Lateral Raises", "Face Pulls", "Bicep Curls")),
+    WorkoutDay("Saturday", "Full Body", WorkoutStatus.UPCOMING, listOf("Clean & Press", "Lunges", "Push-ups", "Burpees")),
+    WorkoutDay("Sunday", "Active Recovery", WorkoutStatus.UPCOMING, listOf("Yoga", "Light cardio", "Mobility work"))
+)
+
+val allAvailableExercises = listOf(
+    "Bench Press", "Incline Dumbbell Press", "Cable Flyes", "Tricep Dips",
+    "Deadlifts", "Pull-ups", "Barbell Rows", "Bicep Curls",
+    "Squats", "Leg Press", "Calf Raises", "Plank",
+    "Military Press", "Lateral Raises", "Face Pulls", "Tricep Pushdown",
+    "Clean & Press", "Lunges", "Push-ups", "Burpees",
+    "Yoga", "Light cardio", "Mobility work", "Hammer Curls",
+    "Lat Pulldown", "Leg Extension", "Leg Curl", "Shoulder Press"
+)
+
+val daysOfWeek = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+val commonFocuses = listOf("Chest & Triceps", "Back & Biceps", "Legs & Core", "Shoulders & Arms", "Full Body", "Cardio", "Rest Day", "Active Recovery")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GymPlanScreen() {
+    var gymPlan by remember { mutableStateOf(initialGymPlan) }
+    var editingDayIndex by remember { mutableStateOf(-1) }
+
+    if (editingDayIndex != -1) {
+        EditPlanDialog(
+            workoutDay = gymPlan[editingDayIndex],
+            onDismiss = { editingDayIndex = -1 },
+            onSave = { updatedDay ->
+                val newList = gymPlan.toMutableList()
+                newList[editingDayIndex] = updatedDay
+                
+                // Auto-sort based on daysOfWeek order
+                newList.sortBy { daysOfWeek.indexOf(it.day) }
+                
+                gymPlan = newList
+                editingDayIndex = -1
+            }
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Column(modifier = Modifier.padding(top = 48.dp, bottom = 8.dp)) {
+                Text(
+                    "Your Gym Plan",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+                Text(
+                    "AI-generated 7-day split",
+                    fontSize = 16.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                InfoCard(
+                    label = "Goal",
+                    value = "Muscle Gain",
+                    icon = Icons.Default.Adjust,
+                    iconColor = PrimaryRed,
+                    modifier = Modifier.weight(1f)
+                )
+                InfoCard(
+                    label = "This Week",
+                    value = "2 / 5 Days",
+                    icon = Icons.Default.CalendarToday,
+                    iconColor = Color(0xFF4CAF50),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        item {
+            val currentDay = java.time.LocalDate.now().dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US)
+            val todayWorkout = gymPlan.find { it.day.equals(currentDay, ignoreCase = true) }
+            
+            todayWorkout?.let { workout ->
+                HighlightWorkoutCard(
+                    title = "Today's Workout",
+                    focus = workout.focus,
+                    exercises = workout.exercises.take(3) + if(workout.exercises.size > 3) listOf("+${workout.exercises.size - 3} more") else emptyList(),
+                    onClick = { editingDayIndex = gymPlan.indexOf(workout) }
+                )
+            }
+        }
+
+        item {
+            Text(
+                "This Week's Schedule",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            )
+        }
+
+        itemsIndexed(items = gymPlan, key = { _, item -> item.day }) { index, day ->
+            val dismissState = rememberSwipeToDismissBoxState(
+                confirmValueChange = {
+                    if (it == SwipeToDismissBoxValue.EndToStart) {
+                        gymPlan = gymPlan.toMutableList().also { it.removeAt(index) }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            )
+
+            SwipeToDismissBox(
+                state = dismissState,
+                backgroundContent = {
+                    val color = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) PrimaryRed else Color.Transparent
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(color, shape = RoundedCornerShape(20.dp))
+                            .padding(horizontal = 24.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                    }
+                },
+                enableDismissFromStartToEnd = false
+            ) {
+                DayCard(workoutDay = day, onClick = { editingDayIndex = index })
+            }
+        }
+
+        item {
+            GeneratePlanCard(onClick = { /* Trigger AI generation */ })
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun EditPlanDialog(
+    workoutDay: WorkoutDay,
+    onDismiss: () -> Unit,
+    onSave: (WorkoutDay) -> Unit
+) {
+    var dayName by remember { mutableStateOf(workoutDay.day) }
+    var focus by remember { mutableStateOf(workoutDay.focus) }
+    var selectedExercises by remember { mutableStateOf(workoutDay.exercises) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredExercises = allAvailableExercises.filter { 
+        it.contains(searchQuery, ignoreCase = true) && it !in selectedExercises 
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFF0F0F12)
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .statusBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                        Text(
+                            "Edit Plan",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        TextButton(onClick = { 
+                            val newStatus = if (focus.lowercase().contains("rest") || (focus.isEmpty() && selectedExercises.isEmpty())) {
+                                WorkoutStatus.REST
+                            } else {
+                                workoutDay.status
+                            }
+                            onSave(workoutDay.copy(day = dayName, focus = focus, exercises = selectedExercises, status = newStatus)) 
+                        }) {
+                            Text("SAVE", color = PrimaryRed, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                item {
+                    Text("Select Day", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(daysOfWeek) { day ->
+                            val isSelected = dayName == day
+                            Surface(
+                                onClick = { dayName = day },
+                                color = if (isSelected) PrimaryRed else Color(0xFF1C1C1E),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (isSelected) PrimaryRed else Color.White.copy(alpha = 0.1f))
+                            ) {
+                                Text(
+                                    text = day,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Select Focus", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        commonFocuses.forEach { f ->
+                            val isSelected = focus == f
+                            Surface(
+                                onClick = { focus = f },
+                                color = if (isSelected) PrimaryRed else Color(0xFF1C1C1E),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (isSelected) PrimaryRed else Color.White.copy(alpha = 0.1f))
+                            ) {
+                                Text(
+                                    text = f,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Current Exercises", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (selectedExercises.isEmpty()) {
+                        Text("No exercises added. This will be shown as a rest day.", color = TextSecondary, fontSize = 14.sp)
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(selectedExercises) { exercise ->
+                                Surface(
+                                    color = PrimaryRed.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, PrimaryRed.copy(alpha = 0.5f)),
+                                    onClick = { selectedExercises = selectedExercises - exercise }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(exercise, color = Color.White, fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Add Exercises", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search exercises...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1C1C1E),
+                            unfocusedContainerColor = Color(0xFF1C1C1E),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = PrimaryRed
+                        )
+                    )
+                }
+
+                items(filteredExercises) { exercise ->
+                    Card(
+                        onClick = { selectedExercises = selectedExercises + exercise },
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(exercise, color = Color.White)
+                            Icon(Icons.Default.Add, contentDescription = null, tint = PrimaryRed)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun InfoCard(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    iconColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.height(110.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(label, color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+            Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun HighlightWorkoutCard(
+    title: String,
+    focus: String,
+    exercises: List<String>,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = PrimaryRed)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Background Dumbbell Icon
+            Icon(
+                Icons.Default.FitnessCenter,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.15f),
+                modifier = Modifier
+                    .size(140.dp)
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 30.dp, y = 20.dp)
+            )
+            
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column {
+                        Text(title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(focus, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            exercises.joinToString(" • "),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 14.sp
+                        )
+                    }
+                    
+                    Surface(
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = CircleShape,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun DayCard(workoutDay: WorkoutDay, onClick: () -> Unit) {
+    val isRestDay = workoutDay.status == WorkoutStatus.REST || (workoutDay.exercises.isEmpty() && workoutDay.focus.lowercase().contains("rest"))
+    val isDone = workoutDay.status == WorkoutStatus.DONE
+    val borderColor = if (isDone) Color(0xFF4CAF50).copy(alpha = 0.5f) else Color.Transparent
+    val backgroundColor = if (isDone) Color(0xFF122315) else if (isRestDay) Color(0xFF0F0F12) else Color(0xFF1C1C1E)
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        border = if (isDone) BorderStroke(1.dp, borderColor) else if (isRestDay) BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)) else null
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        workoutDay.day,
+                        color = if (isDone) Color(0xFF4CAF50) else if (isRestDay) TextSecondary else Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (isDone) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Surface(
+                            color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("DONE", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                
+                Text(
+                    if (workoutDay.focus.isEmpty() && workoutDay.exercises.isEmpty()) "Rest Day" else workoutDay.focus,
+                    color = if (isDone) Color.White.copy(alpha = 0.7f) else TextSecondary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+
+                if (workoutDay.exercises.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        workoutDay.exercises.forEach { exercise ->
+                            ExerciseChip(exercise)
+                        }
+                    }
+                }
+            }
+            
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ExerciseChip(text: String) {
+    Surface(
+        color = Color(0xFF2C2C2E),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = text,
+            color = Color.White.copy(alpha = 0.9f),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+fun GeneratePlanCard(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                color = Color(0xFFBB86FC).copy(alpha = 0.1f),
+                shape = CircleShape,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFFBB86FC), modifier = Modifier.size(20.dp))
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Generate New Plan", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("Customize your workout schedule with AI", color = TextSecondary, fontSize = 13.sp)
+            }
+            
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+// --- End of Gym Plan Screen ---
 
 @Composable
 fun PlaceholderScreen(name: String) {
